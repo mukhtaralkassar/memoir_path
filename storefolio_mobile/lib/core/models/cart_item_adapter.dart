@@ -11,31 +11,45 @@ class CartItemAdapter extends TypeAdapter<CartItem> {
     final fields = <int, dynamic>{
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
+    final name = fields[2] as String?;
+    final price = fields[3] as double?;
     return CartItem(
       productId: fields[0] as int,
       storeName: fields[1] as String,
-      quantity: fields[2] as int,
-      selectedAttributes: fields[3] as String?,
-      notes: fields[4] as String?,
-      addedAt: fields[5] != null ? DateTime.parse(fields[5] as String) : null,
+      name: name ?? '',
+      price: price ?? 0.0,
+      image: fields[4] as String?,
+      quantity: fields[5] as int? ?? 1,
+      isWholesale: fields[6] as bool? ?? false,
+      selectedAttributes: fields[7] as String?,
+      notes: fields[8] as String?,
+      addedAt: fields[9] != null ? DateTime.parse(fields[9] as String) : null,
     );
   }
 
   @override
   void write(BinaryWriter writer, CartItem obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.productId)
       ..writeByte(1)
       ..write(obj.storeName)
       ..writeByte(2)
-      ..write(obj.quantity)
+      ..write(obj.name)
       ..writeByte(3)
-      ..write(obj.selectedAttributes)
+      ..write(obj.price)
       ..writeByte(4)
-      ..write(obj.notes)
+      ..write(obj.image)
       ..writeByte(5)
+      ..write(obj.quantity)
+      ..writeByte(6)
+      ..write(obj.isWholesale)
+      ..writeByte(7)
+      ..write(obj.selectedAttributes)
+      ..writeByte(8)
+      ..write(obj.notes)
+      ..writeByte(9)
       ..write(obj.addedAt?.toIso8601String());
   }
 

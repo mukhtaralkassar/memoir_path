@@ -44,6 +44,10 @@ dependencies:
   # Notifications
   firebase_messaging: ^15.1.6
   firebase_core: ^3.8.1
+  firebase_analytics: ^11.3.6
+
+  # Local notifications for foreground FCM
+  flutter_local_notifications: ^18.0.1
 
   # Splash / launcher icon generation
   flutter_native_splash: ^2.4.5

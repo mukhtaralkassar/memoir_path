@@ -8,28 +8,15 @@ import '../../core/models/store.dart';
 import '../../core/models/product.dart';
 import '../../core/models/category.dart';
 import '../../core/providers/store_provider.dart';
-import '../../core/providers/api_provider.dart';
+import '../../core/providers/cart_provider.dart';
+import '../../core/providers/locale_provider.dart';
+import '../../core/api/storefolio_api.dart';
 import '../store_expired/store_expired_screen.dart';
 import 'widgets/product_card_factory.dart';
 import 'widgets/filter_drawer.dart';
 import 'widgets/search_bar_widget.dart';
 import 'widgets/cart_drawer.dart';
-
-final storeDetailProvider = FutureProvider.family<Store, String>((ref, storeName) async {
-  final api = ref.watch(apiProvider);
-  return await api.getStore(storeName);
-});
-
-final productsProvider = FutureProvider.family<List<Product>, String>((ref, storeName) async {
-  final api = ref.watch(apiProvider);
-  final response = await api.getProducts(storeName, page: 1, pageSize: 100, sort: 'newest');
-  return response.products;
-});
-
-final categoriesProvider = FutureProvider.family<List<Category>, String>((ref, storeName) async {
-  final api = ref.watch(apiProvider);
-  return await api.getCategories(storeName);
-});
+import 'widgets/store_menu_drawer.dart';
 
 class StoreDetailScreen extends ConsumerStatefulWidget {
   final String storeName;
@@ -44,22 +31,26 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
   bool _showSearch = false;
   String _searchQuery = '';
   String? _selectedCategory;
+  int? _selectedCategoryId;
+  double? _minPrice;
+  double? _maxPrice;
   String _sortBy = 'newest';
-  bool _isGridView = true;
+  bool? _overrideGridView;
 
   @override
   Widget build(BuildContext context) {
-    final storeAsync = ref.watch(storeDetailProvider(widget.storeName));
-    final productsAsync = ref.watch(productsProvider(widget.storeName));
-    final categoriesAsync = ref.watch(categoriesProvider(widget.storeName));
+    final storeAsync = ref.watch(storeConfigProvider(widget.storeName));
+    final productsAsync = ref.watch(storeProductsProvider(widget.storeName));
+    final categoriesAsync = ref.watch(storeCategoriesProvider(widget.storeName));
+    final isWholesale = ref.watch(wholesaleModeProvider);
 
     return storeAsync.when(
+      skipLoadingOnReload: true,
       data: (store) {
-        // If the store came back as expired, block the whole app.
         if (store.isExpired == true) {
           return StoreExpiredScreen(store: store);
         }
-        return _buildStoreScaffold(store, productsAsync, categoriesAsync);
+        return _buildStoreScaffold(store, productsAsync, categoriesAsync, isWholesale);
       },
       loading: () => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -88,14 +79,22 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
     );
   }
 
-  Widget _buildStoreScaffold(Store store, AsyncValue<List<Product>> productsAsync, AsyncValue<List<Category>> categoriesAsync) {
+  Widget _buildStoreScaffold(Store store, AsyncValue<ProductResponse> productsAsync, AsyncValue<List<Category>> categoriesAsync, bool isWholesale) {
+    final isGridView = _overrideGridView ?? (store.viewMode == 'list' ? false : true);
+    final backgroundColor = AppTheme.parseHexColor(store.backgroundColor, AppTheme.backgroundColor);
+    final fontColor = AppTheme.parseHexColor(store.fontColor, AppTheme.textPrimary);
+
+    final locale = ref.watch(localeProvider);
+    final isArabic = locale.languageCode == 'ar';
+
     return Scaffold(
+      backgroundColor: backgroundColor,
+      drawer: isArabic ? null : StoreMenuDrawer(store: store),
+      endDrawer: isArabic ? StoreMenuDrawer(store: store) : null,
       body: CustomScrollView(
         slivers: [
-          // App Bar with Banner
-          _buildSliverAppBar(store),
+          _buildSliverAppBar(store, isWholesale, fontColor, isArabic),
 
-          // Search Bar
           if (store.showSearch == true && _showSearch)
             SliverToBoxAdapter(
               child: SearchBarWidget(
@@ -108,19 +107,17 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
               ),
             ),
 
-          // Categories
           if (store.showCategories == true)
             SliverToBoxAdapter(
               child: categoriesAsync.when(
-                data: (categories) => _buildCategoriesList(categories),
+                data: (categories) => _buildCategoriesList(categories, store, fontColor),
                 loading: () => const SizedBox(height: 50),
                 error: (_, __) => const SizedBox.shrink(),
               ),
             ),
 
-          // Products Grid
           productsAsync.when(
-            data: (products) => _buildProductsGrid(products, store),
+            data: (response) => _buildProductsGrid(response.products, store, isGridView, isWholesale),
             loading: () => SliverToBoxAdapter(
               child: _buildProductsShimmer(),
             ),
@@ -145,12 +142,39 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
     );
   }
 
-  Widget _buildSliverAppBar(Store store) {
+  Widget _buildSliverAppBar(Store store, bool isWholesale, Color fontColor, bool isArabic) {
+    final isGridView = _overrideGridView ?? (store.viewMode == 'list' ? false : true);
+    final canWholesale = store.isWholesale == true;
+    final canRetail = store.isRetail != false;
+
     return SliverAppBar(
       expandedHeight: 200,
       pinned: true,
       floating: true,
-      actions: [
+        actions: [
+          Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () {
+                if (isArabic) {
+                  Scaffold.of(context).openEndDrawer();
+                } else {
+                  Scaffold.of(context).openDrawer();
+                }
+              },
+            ),
+          ),
+          if (canRetail && canWholesale)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: ChoiceChip(
+              label: Text(isWholesale ? 'جملة' : 'مفرق'),
+              selected: isWholesale,
+              onSelected: (_) => _toggleWholesaleMode(),
+              selectedColor: AppTheme.parseHexColor(store.themeColor, AppTheme.primaryColor),
+              labelStyle: const TextStyle(color: Colors.white),
+            ),
+          ),
         IconButton(
           icon: const Icon(Icons.search),
           onPressed: () {
@@ -161,13 +185,13 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
         ),
         IconButton(
           icon: const Icon(Icons.filter_list),
-          onPressed: () => _showFilterDrawer(context),
+          onPressed: () => _showFilterDrawer(context, []),
         ),
         IconButton(
-          icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view),
+          icon: Icon(isGridView ? Icons.view_list : Icons.grid_view),
           onPressed: () {
             setState(() {
-              _isGridView = !_isGridView;
+              _overrideGridView = !isGridView;
             });
           },
         ),
@@ -190,16 +214,14 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
         background: Stack(
           fit: StackFit.expand,
           children: [
-            // Banner Image
             store.bannerUrl != null
                 ? Image.network(
                     store.bannerUrl!,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) =>
-                        Container(color: AppTheme.primaryColor),
+                        Container(color: AppTheme.parseHexColor(store.themeColor, AppTheme.primaryColor)),
                   )
-                : Container(color: AppTheme.primaryColor),
-            // Gradient Overlay
+                : Container(color: AppTheme.parseHexColor(store.themeColor, AppTheme.primaryColor)),
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -218,7 +240,12 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
     );
   }
 
-  Widget _buildCategoriesList(List<Category> categories) {
+  void _toggleWholesaleMode() {
+    ref.read(wholesaleModeProvider.notifier).state = !ref.read(wholesaleModeProvider);
+  }
+
+  Widget _buildCategoriesList(List<Category> categories, Store store, Color fontColor) {
+    final primary = AppTheme.parseHexColor(store.themeColor, AppTheme.primaryColor);
     return Container(
       height: 50,
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -231,8 +258,9 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
             return _buildCategoryChip('الكل', _selectedCategory == null, () {
               setState(() {
                 _selectedCategory = null;
+                _selectedCategoryId = null;
               });
-            });
+            }, primary, fontColor);
           }
           final category = categories[index - 1];
           final isSelected = _selectedCategory == category.nameAr;
@@ -241,32 +269,42 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
             isSelected,
             () {
               setState(() {
-                _selectedCategory = isSelected ? null : category.nameAr;
+                if (isSelected) {
+                  _selectedCategory = null;
+                  _selectedCategoryId = null;
+                } else {
+                  _selectedCategory = category.nameAr;
+                  _selectedCategoryId = category.id;
+                }
               });
             },
+            primary,
+            fontColor,
           );
         },
       ),
     );
   }
 
-  Widget _buildCategoryChip(String label, bool isSelected, VoidCallback onTap) {
+  Widget _buildCategoryChip(String label, bool isSelected, VoidCallback onTap, Color primary, Color fontColor) {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
         label: Text(label),
         selected: isSelected,
         onSelected: (_) => onTap(),
-        selectedColor: AppTheme.primaryColor,
+        selectedColor: primary,
+        backgroundColor: AppTheme.parseHexColor(null, AppTheme.surfaceColor),
         labelStyle: TextStyle(
-          color: isSelected ? Colors.white : AppTheme.textPrimary,
+          color: isSelected ? Colors.white : fontColor,
         ),
       ),
     );
   }
 
-  Widget _buildProductsGrid(List<Product> products, Store store) {
-    final filteredProducts = _filterProducts(products);
+  Widget _buildProductsGrid(List<Product> products, Store store, bool isGridView, bool isWholesale) {
+    final filteredProducts = _filterProducts(products, isWholesale);
+    final fontColor = AppTheme.parseHexColor(store.fontColor, AppTheme.textPrimary);
 
     if (filteredProducts.isEmpty) {
       return SliverToBoxAdapter(
@@ -283,7 +321,7 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
               const SizedBox(height: 16),
               Text(
                 'لا توجد منتجات',
-                style: AppTheme.subtitle1.copyWith(color: AppTheme.textSecondary),
+                style: AppTheme.subtitle1.copyWith(color: fontColor.withAlpha(153)),
               ),
             ],
           ),
@@ -291,13 +329,15 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
       );
     }
 
-    if (_isGridView) {
+    final style = isGridView ? (store.cardShape ?? 'style-1') : 'list-style';
+
+    if (isGridView) {
       return SliverPadding(
         padding: const EdgeInsets.all(16),
         sliver: SliverGrid(
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
             maxCrossAxisExtent: 200,
-            childAspectRatio: 0.65,
+            childAspectRatio: _resolveChildAspectRatio(store.imageAspectRatio),
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
@@ -307,11 +347,12 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
               return ProductCardFactory(
                 product: product,
                 store: store,
-                style: store.productCardStyle ?? 'style-1',
+                style: style,
+                isWholesale: isWholesale,
                 onTap: () => context.go(
                   '/store/${widget.storeName}/product/${product.id}',
                 ),
-                onAddToCart: () => _addToCart(product),
+                onAddToCart: () => _addToCart(product, isWholesale),
               );
             },
             childCount: filteredProducts.length,
@@ -328,11 +369,12 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
               child: ProductCardFactory(
                 product: product,
                 store: store,
-                style: 'list-style',
+                style: style,
+                isWholesale: isWholesale,
                 onTap: () => context.go(
                   '/store/${widget.storeName}/product/${product.id}',
                 ),
-                onAddToCart: () => _addToCart(product),
+                onAddToCart: () => _addToCart(product, isWholesale),
               ),
             );
           },
@@ -342,16 +384,40 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
     }
   }
 
-  List<Product> _filterProducts(List<Product> products) {
+  double _resolveChildAspectRatio(String? imageAspectRatio) {
+    switch (imageAspectRatio) {
+      case '1/1':
+      case '1:1':
+        return 0.75;
+      case '4/3':
+      case '4:3':
+        return 0.85;
+      case '16/9':
+      case '16:9':
+        return 1.1;
+      case '3/4':
+      case '3:4':
+        return 0.65;
+      default:
+        return 0.65;
+    }
+  }
+
+  List<Product> _filterProducts(List<Product> products, bool isWholesale) {
     var filtered = products;
 
     // Search filter
     if (_searchQuery.isNotEmpty) {
       filtered = filtered.where((p) {
-        final name = p.displayNameAr?.toLowerCase() ?? '';
-        final desc = p.displayDescriptionAr?.toLowerCase() ?? '';
+        final nameAr = p.displayNameAr?.toLowerCase() ?? '';
+        final nameEn = p.displayNameEn?.toLowerCase() ?? '';
+        final descAr = p.displayDescriptionAr?.toLowerCase() ?? '';
+        final descEn = p.displayDescriptionEn?.toLowerCase() ?? '';
         final query = _searchQuery.toLowerCase();
-        return name.contains(query) || desc.contains(query);
+        return nameAr.contains(query) ||
+            nameEn.contains(query) ||
+            descAr.contains(query) ||
+            descEn.contains(query);
       }).toList();
     }
 
@@ -362,23 +428,51 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
       ).toList();
     }
 
+    // Price range filter
+    if (_minPrice != null) {
+      filtered = filtered.where((p) {
+        final price = _resolvePrice(p, isWholesale);
+        return price >= _minPrice!;
+      }).toList();
+    }
+    if (_maxPrice != null) {
+      filtered = filtered.where((p) {
+        final price = _resolvePrice(p, isWholesale);
+        return price <= _maxPrice!;
+      }).toList();
+    }
+
     // Sort
     switch (_sortBy) {
       case 'newest':
         filtered.sort((a, b) => (b.id).compareTo(a.id));
         break;
       case 'price-low':
-        filtered.sort((a, b) => (a.price ?? 0).compareTo(b.price ?? 0));
+        filtered.sort((a, b) => _resolvePrice(a, isWholesale).compareTo(_resolvePrice(b, isWholesale)));
         break;
       case 'price-high':
-        filtered.sort((a, b) => (b.price ?? 0).compareTo(a.price ?? 0));
+        filtered.sort((a, b) => _resolvePrice(b, isWholesale).compareTo(_resolvePrice(a, isWholesale)));
         break;
       case 'viewed':
         filtered.sort((a, b) => (b.viewCount ?? 0).compareTo(a.viewCount ?? 0));
         break;
+      case 'name-asc':
+        filtered.sort((a, b) {
+          final aName = a.displayNameAr ?? a.displayNameEn ?? '';
+          final bName = b.displayNameAr ?? b.displayNameEn ?? '';
+          return aName.compareTo(bName);
+        });
+        break;
     }
 
     return filtered;
+  }
+
+  double _resolvePrice(Product product, bool isWholesale) {
+    if (isWholesale) {
+      return product.wholesalePrice ?? product.price ?? 0;
+    }
+    return product.price ?? 0;
   }
 
   Widget _buildProductsShimmer() {
@@ -421,8 +515,16 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
     );
   }
 
-  void _addToCart(Product product) {
-    // TODO: Implement cart functionality
+  void _addToCart(Product product, bool isWholesale) {
+    final cartNotifier = ref.read(cartProvider(widget.storeName).notifier);
+    cartNotifier.addItem(
+      productId: product.id,
+      name: product.displayNameAr ?? product.displayNameEn ?? '',
+      price: isWholesale ? (product.wholesalePrice ?? product.price ?? 0) : (product.price ?? 0),
+      image: product.mainImage ?? (product.images?.isNotEmpty == true ? product.images!.first : null),
+      quantity: 1,
+      isWholesale: isWholesale,
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('تمت إضافة ${product.displayNameAr} إلى السلة'),
@@ -435,16 +537,37 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
     );
   }
 
-  void _showFilterDrawer(BuildContext context) {
+  void _showFilterDrawer(BuildContext context, List<Category> categories) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (context) => FilterDrawer(
         currentSort: _sortBy,
-        onSortChanged: (sort) {
+        selectedCategoryId: _selectedCategoryId,
+        minPrice: _minPrice,
+        maxPrice: _maxPrice,
+        categories: categories,
+        onApply: (result) {
           setState(() {
-            _sortBy = sort;
+            _sortBy = result.sort;
+            _selectedCategoryId = result.categoryId;
+            _minPrice = result.minPrice;
+            _maxPrice = result.maxPrice;
+            _selectedCategory = result.categoryId == null
+                ? null
+                : categories
+                    .firstWhere((c) => c.id == result.categoryId)
+                    .nameAr;
           });
-          Navigator.pop(context);
+        },
+        onReset: () {
+          setState(() {
+            _sortBy = 'newest';
+            _selectedCategory = null;
+            _selectedCategoryId = null;
+            _minPrice = null;
+            _maxPrice = null;
+          });
         },
       ),
     );
@@ -454,7 +577,7 @@ class _StoreDetailScreenState extends ConsumerState<StoreDetailScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => const CartDrawer(),
+      builder: (context) => CartDrawer(storeName: widget.storeName),
     );
   }
 }

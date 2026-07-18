@@ -1,6 +1,16 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
+
 import '../constants/app_constants.dart';
+import '../models/currency.dart';
+
+/// Global, mutable references updated by the app so Dio can read them
+/// without a BuildContext. Locale/currency providers set these on init/change.
+class DioContext {
+  static Locale locale = const Locale(AppConstants.defaultLanguage);
+  static Currency? currency;
+}
 
 class DioClient {
   static Dio? _dio;
@@ -9,6 +19,10 @@ class DioClient {
   static Dio get instance {
     _dio ??= _createDio();
     return _dio!;
+  }
+
+  static void reset() {
+    _dio = null;
   }
 
   static Dio _createDio() {
@@ -36,8 +50,11 @@ class DioClient {
       ),
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          // Add language header
-          options.headers['Accept-Language'] = 'ar'; // TODO: Get from locale provider
+          // Dynamic language header based on current app locale.
+          options.headers['Accept-Language'] = DioContext.locale.languageCode;
+          if (DioContext.currency != null) {
+            options.headers['X-Selected-Currency'] = DioContext.currency!.code;
+          }
           return handler.next(options);
         },
         onError: (DioException e, handler) {

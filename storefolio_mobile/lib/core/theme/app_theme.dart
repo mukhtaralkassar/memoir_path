@@ -241,23 +241,51 @@ class AppTheme {
     );
   }
 
+  /// Parses a hex color string (#RRGGBB or RRGGBB) into a Flutter [Color].
+  static Color parseHexColor(String? value, [Color? fallback]) {
+    if (value == null || value.isEmpty) return fallback ?? primaryColor;
+    try {
+      final hex = value.replaceFirst('#', '').trim();
+      if (hex.length == 6) {
+        return Color(int.parse(hex, radix: 16) + 0xFF000000);
+      } else if (hex.length == 8) {
+        return Color(int.parse(hex, radix: 16));
+      }
+      return fallback ?? primaryColor;
+    } catch (_) {
+      return fallback ?? primaryColor;
+    }
+  }
+
   // Dynamic theme based on store colors
   static ThemeData storeTheme({
     Color? primary,
     Color? secondary,
     Color? accent,
+    Color? background,
+    Color? surface,
+    Color? onSurface,
     String? fontFamily,
   }) {
     final p = primary ?? primaryColor;
     final s = secondary ?? secondaryColor;
     final a = accent ?? accentColor;
+    final b = background ?? backgroundColor;
+    final surf = surface ?? surfaceColor;
+    final onSurf = onSurface ?? textPrimary;
 
     return lightTheme.copyWith(
       primaryColor: p,
+      scaffoldBackgroundColor: b,
+      cardColor: surf,
       colorScheme: lightTheme.colorScheme.copyWith(
         primary: p,
         secondary: s,
         tertiary: a,
+        surface: surf,
+        background: b,
+        onSurface: onSurf,
+        onBackground: onSurf,
       ),
       appBarTheme: lightTheme.appBarTheme.copyWith(
         backgroundColor: p,
@@ -306,8 +334,13 @@ class AppTheme {
       textTheme: fontFamily != null
           ? lightTheme.textTheme.apply(
               fontFamily: fontFamily,
+              displayColor: onSurf,
+              bodyColor: onSurf,
             )
-          : lightTheme.textTheme,
+          : lightTheme.textTheme.apply(
+              displayColor: onSurf,
+              bodyColor: onSurf,
+            ),
     );
   }
 }

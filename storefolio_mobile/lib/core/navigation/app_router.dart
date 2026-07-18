@@ -20,7 +20,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/splash',
         name: 'splash',
-        builder: (context, state) => const SplashScreen(),
+        builder: (context, state) {
+          final uri = state.uri;
+          return SplashScreen(deepLinkUri: uri.queryParameters.isEmpty ? null : uri);
+        },
       ),
       GoRoute(
         path: '/',
@@ -75,7 +78,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
     redirect: (context, state) {
-      // No automatic redirect needed; splash decides where to go.
       return null;
     },
     errorBuilder: (context, state) => Scaffold(

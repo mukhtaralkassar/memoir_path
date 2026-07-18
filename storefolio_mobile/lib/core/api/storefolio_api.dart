@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import '../constants/app_constants.dart';
 import '../models/store.dart';
 import '../models/product.dart';
 import '../models/category.dart';

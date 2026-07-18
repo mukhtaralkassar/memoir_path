@@ -2,10 +2,14 @@ import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../constants/app_constants.dart';
 import '../models/cart_item.dart';
+import '../models/store.dart';
+import '../models/product.dart';
+import '../models/category.dart';
 
 class StorageService {
   static StorageService? _instance;
   late Box<String> _cartBox;
+  late Box<String> _cacheBox;
   late Box<dynamic> _settingsBox;
 
   static Future<StorageService> get instance async {
@@ -18,7 +22,8 @@ class StorageService {
     await Hive.initFlutter();
     
     _cartBox = await Hive.openBox<String>(AppConstants.cartBoxName);
-    _settingsBox = await Hive.openBox(AppConstants.hiveBoxName);
+    _cacheBox = await Hive.openBox<String>(AppConstants.hiveBoxName);
+    _settingsBox = await Hive.openBox('${AppConstants.hiveBoxName}_settings');
   }
 
   // Cart Operations
@@ -91,5 +96,98 @@ class StorageService {
 
   Map<String, dynamic>? getStoreColors() {
     return _settingsBox.get('storeColors');
+  }
+
+  // Wholesale / Retail Mode
+  static const String _wholesaleModeKey = 'wholesale_mode';
+
+  Future<void> setWholesaleMode(bool isWholesale) async {
+    await _settingsBox.put(_wholesaleModeKey, isWholesale);
+  }
+
+  bool getWholesaleMode() {
+    return _settingsBox.get(_wholesaleModeKey, defaultValue: false);
+  }
+
+  // Cache Operations
+  Future<void> cacheStoreConfig(String storeName, Store store) async {
+    await _cacheBox.put('store_$storeName', jsonEncode(store.toJson()));
+    await _cacheBox.put('store_${storeName}_time', DateTime.now().toIso8601String());
+  }
+
+  Store? getCachedStoreConfig(String storeName) {
+    final jsonStr = _cacheBox.get('store_$storeName');
+    if (jsonStr == null) return null;
+    try {
+      return Store.fromJson(jsonDecode(jsonStr));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool isStoreConfigCacheValid(String storeName) {
+    final timeStr = _cacheBox.get('store_${storeName}_time');
+    if (timeStr == null) return false;
+    final cachedTime = DateTime.tryParse(timeStr);
+    if (cachedTime == null) return false;
+    return DateTime.now().difference(cachedTime) < AppConstants.cacheDuration;
+  }
+
+  Future<void> cacheProducts(String storeName, List<Product> products, {bool wholesale = false}) async {
+    final key = 'products_${storeName}_${wholesale ? 'wholesale' : 'retail'}';
+    await _cacheBox.put(key, jsonEncode(products.map((p) => p.toJson()).toList()));
+    await _cacheBox.put('${key}_time', DateTime.now().toIso8601String());
+  }
+
+  List<Product> getCachedProducts(String storeName, {bool wholesale = false}) {
+    final key = 'products_${storeName}_${wholesale ? 'wholesale' : 'retail'}';
+    final jsonStr = _cacheBox.get(key);
+    if (jsonStr == null) return [];
+    try {
+      final list = jsonDecode(jsonStr) as List;
+      return list.map((e) => Product.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  bool isProductsCacheValid(String storeName, {bool wholesale = false}) {
+    final key = 'products_${storeName}_${wholesale ? 'wholesale' : 'retail'}';
+    final timeStr = _cacheBox.get('${key}_time');
+    if (timeStr == null) return false;
+    final cachedTime = DateTime.tryParse(timeStr);
+    if (cachedTime == null) return false;
+    return DateTime.now().difference(cachedTime) < const Duration(hours: 1);
+  }
+
+  Future<void> cacheCategories(String storeName, List<Category> categories) async {
+    final key = 'categories_$storeName';
+    await _cacheBox.put(key, jsonEncode(categories.map((c) => c.toJson()).toList()));
+    await _cacheBox.put('${key}_time', DateTime.now().toIso8601String());
+  }
+
+  List<Category> getCachedCategories(String storeName) {
+    final key = 'categories_$storeName';
+    final jsonStr = _cacheBox.get(key);
+    if (jsonStr == null) return [];
+    try {
+      final list = jsonDecode(jsonStr) as List;
+      return list.map((e) => Category.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  bool isCategoriesCacheValid(String storeName) {
+    final key = 'categories_$storeName';
+    final timeStr = _cacheBox.get('${key}_time');
+    if (timeStr == null) return false;
+    final cachedTime = DateTime.tryParse(timeStr);
+    if (cachedTime == null) return false;
+    return DateTime.now().difference(cachedTime) < AppConstants.cacheDuration;
+  }
+
+  Future<void> clearAllCache() async {
+    await _cacheBox.clear();
   }
 }

@@ -170,17 +170,86 @@ python3 tools/storefolio_build.py \
 
 لشرح تفصيلي أكثر للأداة، راجع `tools/README.md`.
 
+## إعدادات العرض القادمة من السيرفر
+
+كل متجر يتحكم بمظهر تطبيقه من لوحة التحكم (dashboard). القيم التالية تُقرأ من `/api/shop/store/{STORE_NAME}` وتُطبّق فوراً:
+
+| الإعداد | المفتاح | تأثيره |
+|---|---|---|
+| `themeColor` | لون رئيسي | أزرار و AppBar |
+| `backgroundColor` | لون خلفية | Scaffold / خلفية الشاشة |
+| `fontColor` | لون الخط | النصوص العامة |
+| `cardBackgroundColor` | لون خلفية الكارد | بطاقات المنتجات |
+| `cardShape` | شكل الكارد | `style-1` … `style-100` |
+| `viewMode` | طريقة العرض | `grid` أو `list` |
+| `imageAspectRatio` | نسبة صورة المنتج | `1/1`, `4/3`, `16/9` ... |
+| `imageObjectFit` | ملء الصورة | `cover`, `contain`, `fill` |
+| `imageBorderRadius` | حدود الصورة | قيمة عددية |
+| `imageShowBorder` | إظهار إطار الصورة | `true` / `false` |
+| `hasDelivery` | يوجد توصيل | يُحسب في سلة الطلب |
+| `deliveryFee` | أجرة التوصيل | تُضاف للمجموع |
+| `whatsAppLang` | لغة رسالة الطلب | `Auto`, `Ar`, `En` |
+| `whatsAppMessage` | قالب رسالة الطلب | يدعم `{product}`, `{quantity}`, `{price}`, `{store}`, `{link}` |
+
+> **ملاحظة:** التطبيق يحتفظ بنسخة محلية (cache) لإعدادات المتجر والمنتجات والفئات، لكنه يطلب تحديثاً من السيرفر بالخلفية عند كل فتح للتأكد من صحة البيانات.
+
+## وضع المفرق والجملة
+
+التطبيق يدعم متجرين عملائيين:
+
+| الوضع | كيفية الفتح |
+|---|---|
+| **مفرق (Retail)** | افتراضي دائماً |
+| **جملة (Wholesale)** | فقط عبر QR أو Deep Link |
+
+Deep Link للجملة:
+```
+storefolio://store/{STORE_NAME}?mode=wholesale
+```
+أو عبر الموقع:
+```
+https://storefolio.devminds.dev/{STORE_NAME}?mode=wholesale
+```
+
+لما المستخدم يمسح QR للجملة:
+1. يفتح التطبيق (أو Play Store إذا غير منصّب).
+2. يُحفظ وضع الجملة محلياً.
+3. يُعرض المتجر بأسعار الجملة.
+4. المستخدم يستطيع العودة للمفرق من زر toggle داخل التطبيق، أو بمسح QR/رابط آخر.
+
+## السلة وإرسال الطلب
+
+- السلة تُحفظ محلياً عبر Hive.
+- لكل عنصر في السلة: اسم المنتج، السعر، الكمية، الصورة، الخصائص المختارة، وهل هو جملة.
+- عند الضغط على "إتمام الطلب عبر واتساب":
+  1. يُرسل الطلب للسيرفر `POST /Shop/CreateOrder`.
+  2. تُبنى رسالة واتساب مطابقة لقالب الموقع.
+  3. يُفتح واتساب برسالة جاهزة.
+  4. بعد النجاح تُفرّغ السلة.
+
 ## الشاشات الرئيسية
 
 ### SplashScreen
 - أول شاشة تظهر.
-- تستدعي `/api/shop/store/{STORE_NAME}`.
+- تستدعي `/api/shop/store/{STORE_NAME}` مع cache-first.
+- تدعم Deep Links وتحدد `wholesale` mode.
 - إذا نجحت → `StoreDetailScreen`.
 - إذا فشلت بـ 403 expired → `StoreExpiredScreen`.
 
 ### StoreDetailScreen
 - تعرض المنتجات والفئات والعروض.
-- تستخدم ألوان المتجر القادمة من الـ API.
+- تطبق `backgroundColor`, `fontColor`, `cardShape`, `viewMode` من الـ API.
+- تدعم تبديل المفرق/الجملة إذا المتجر يدعم كلاهما.
+
+### ProductDetailScreen
+- عرض صور المنتج وفق `imageAspectRatio`, `imageObjectFit`, `imageBorderRadius`.
+- اختيار الخصائص (attributes) مباشرة من `attributesJson`.
+- زر "أضف للسلة" وزر "اطلب عبر واتساب".
+
+### CartScreen
+- عرض محتويات السلة مع تعديل الكميات وحذف العناصر.
+- حساب المجموع والتوصيل.
+- زر إتمام الطلب عبر واتساب.
 
 ### StoreExpiredScreen
 - تظهر عند انتهاء اشتراك المتجر.

@@ -42,6 +42,13 @@ def patch_file(path: Path, replacements: dict[str, str]) -> None:
 def download_icon(url: str, dest: Path) -> None:
     import urllib.request
 
+    if url.startswith("file://"):
+        src = Path(url[7:])
+        if not src.exists():
+            raise FileNotFoundError(f"Local icon not found: {src}")
+        shutil.copy(src, dest)
+        return
+
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=60) as response:
         dest.write_bytes(response.read())
@@ -128,7 +135,16 @@ def build_store_app(args: argparse.Namespace) -> Path:
             splash_path = work_dir / "assets" / "images" / "storefolio_logo.png"
             shutil.copy(icon_path, splash_path)
 
-        # 5. Run Flutter build
+        # 5. Optionally copy google-services.json for Firebase
+        if args.google_services_json:
+            gs_source = Path(args.google_services_json)
+            if not gs_source.exists():
+                raise FileNotFoundError(f"google-services.json not found: {gs_source}")
+            gs_dest = work_dir / "android" / "app" / "google-services.json"
+            shutil.copy(gs_source, gs_dest)
+            print(f"Copied google-services.json to {gs_dest}")
+
+        # 6. Run Flutter build
         print("Building Android App Bundle...")
         flutter_env = os.environ.copy()
         run(
@@ -152,6 +168,7 @@ def build_store_app(args: argparse.Namespace) -> Path:
             "bundleId": bundle_id,
             "baseUrl": base_url,
             "logoUrl": args.logo_url,
+            "googleServicesJson": args.google_services_json,
             "aabPath": str(aab_dest),
         }
         (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
@@ -167,7 +184,8 @@ def main() -> int:
     parser.add_argument("--app-name-ar", default=None, help="Arabic app name (Android label)")
     parser.add_argument("--app-name-en", default=None, help="English app name used to derive bundle id")
     parser.add_argument("--bundle-id", default=None, help="Android bundle id, e.g. com.storefolio.devminds.storename")
-    parser.add_argument("--logo-url", default=None, help="URL to a square PNG icon (512x512+)")
+    parser.add_argument("--logo-url", default=None, help="URL or file:///path to a square PNG icon (512x512+)")
+    parser.add_argument("--google-services-json", default=None, help="Path to google-services.json for Firebase (optional)")
     parser.add_argument("--base-url", default=None, help="Storefolio backend base URL")
     parser.add_argument("--output", required=True, help="Directory to place the AAB and metadata")
     parser.add_argument("--publish", default=None, choices=["internal", "closed", "production"], help="Publish track (requires Google Play setup)")

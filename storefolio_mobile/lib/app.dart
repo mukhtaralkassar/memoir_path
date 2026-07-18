@@ -43,23 +43,20 @@ class StorefolioApp extends ConsumerWidget {
   }
 
   ThemeData _buildStoreTheme(Store store) {
-    final primary = _parseColor(store.themeColor, AppTheme.primaryColor);
-    final secondary = _parseColor(store.secondaryColor, AppTheme.secondaryColor);
-    final accent = _parseColor(store.accentColor, AppTheme.accentColor);
+    final primary = AppTheme.parseHexColor(store.themeColor, AppTheme.primaryColor);
+    final secondary = AppTheme.parseHexColor(store.secondaryColor, AppTheme.secondaryColor);
+    final accent = AppTheme.parseHexColor(store.accentColor, AppTheme.accentColor);
+    final background = AppTheme.parseHexColor(store.backgroundColor, AppTheme.backgroundColor);
+    final surface = AppTheme.parseHexColor(store.cardBackgroundColor, AppTheme.surfaceColor);
+    final onSurface = AppTheme.parseHexColor(store.fontColor, AppTheme.textPrimary);
     return AppTheme.storeTheme(
       primary: primary,
       secondary: secondary,
       accent: accent,
+      background: background,
+      surface: surface,
+      onSurface: onSurface,
       fontFamily: store.fontFamily,
     );
-  }
-
-  Color _parseColor(String? value, Color fallback) {
-    if (value == null || value.isEmpty) return fallback;
-    try {
-      return Color(int.parse(value.replaceFirst('#', ''), radix: 16) + 0xFF000000);
-    } catch (_) {
-      return fallback;
-    }
   }
 }

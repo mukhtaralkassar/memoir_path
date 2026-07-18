@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
+
+import '../api/dio_client.dart';
+import '../services/analytics_service.dart';
 import '../services/storage_service.dart';
 import '../constants/app_constants.dart';
 
@@ -22,14 +25,21 @@ class LocaleNotifier extends StateNotifier<Locale> {
   Future<void> _loadLocale() async {
     _storage = await _ref.read(storageServiceProvider.future);
     final language = _storage!.getLanguage();
-    state = Locale(language);
+    _applyLanguage(language);
   }
 
   Future<void> setLocale(String languageCode) async {
     if (AppConstants.supportedLanguages.contains(languageCode)) {
       await _storage?.setLanguage(languageCode);
-      state = Locale(languageCode);
+      _applyLanguage(languageCode);
     }
+  }
+
+  void _applyLanguage(String languageCode) {
+    state = Locale(languageCode);
+    DioContext.locale = state;
+    DioClient.reset();
+    AnalyticsService.setUserLanguage(languageCode);
   }
 
   void toggleLocale() {
